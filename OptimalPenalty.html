@@ -1,0 +1,276 @@
+<html>
+When you're taking a penalty in association football, how close to the post should you aim?
+<br/>
+To see this in action, have a look at 
+  <a href="https://abitofmaths.blogspot.com/2026/01/optimal-penalty.html">
+    optimal penalty calculator.
+  </a>
+
+<table>
+  <tbody><tr> <td>   <b>Inputs</b></td><td></td>        </tr>
+    <tr>
+            <td>Prob save, ball just inside post</td>
+            <td align="right">
+               <input align="right" id="prob_save_post" name="prob_save_post" 
+                      onchange="doCalcPen()" type="text" 
+                      value="5" />
+            </td>
+            <td>%</td>    
+    </tr>
+
+    
+    <tr>
+            <td>Probability of save at goal centre</td>
+            <td align="right" text-align="right">
+               <input text-align="right" align="right" 
+                      id="prob_save_centre" name="prob_save_centre" 
+                      onchange="doCalcPen()" type="text" 
+                      value="50" />
+            </td>
+            <td>%</td>
+    </tr>
+
+    <tr>        
+            <td>Striker's average inaccuracy</td>
+            <td align="right">
+               <input align="right" id="inaccuracy" name="inaccuracy" 
+                      onchange="doCalcPen()" type="text" 
+                      value="0.4" />
+            </td>
+            <td>meters</td>
+    </tr>
+    
+        
+        <tr><td id="pen_warning" style="color: red;"><br /></td ><td></td></tr>
+
+        <tr> <td>   <b>Calculated Results</b></td><td></td>
+        </tr><tr><td> Optimal target distance from post        </td><td align="right" id="opt_dist_from_post">   - </td> <td>meters</td>
+        </tr><tr><td> Optimal target distance from goal centre </td><td align="right" id="opt_dist_from_centre"> - </td> <td>meters</td>
+        </tr><tr><td> Probability of scoring    </td><td align="right" id="prob_score">           - </td> <td>%</td>
+    </tr></tbody></table>      
+
+<br/><br/>
+If you change some of the inputs above and hit enter, the results will update.
+<br/><br/>
+
+The striker's average inaccuracy is measured by asking the striker to kick the ball from the penalty spot directly to the centre of the goal at the same pace he hits penalties. We measure how close the ball was each time to the centre of the goal and take the average.
+<br/><br/>
+
+
+<script>
+/////////////////////////////////////////////////////////////////////////////
+// Below there is some javascript code used to determine the optimal spot to aim a 
+// a penalty in football.
+// Author: Philip Kinlen, January 2026
+
+/////////////////////////////////////////////////////////////////////////////
+// Constants
+const g_angleAtPost   = 0.3127677335;  // in radians: atan (   (dist_centre_to_less_post less ball_radius ) 
+                                       //                    / dist_pen_spot_to_goal_centre                )
+  
+const g_numSteps      = 1000;          // the number of interations used when integrating     
+const g_distPenToGoal = 10.97;         // meters
+
+const g_goalWidth     = 7.32;          // meters
+const g_ballDiameter  = 0.223;         // meters
+      
+// Initialise result using default values 
+doCalcPen();
+
+/////////////////////////////////////////////////////////////////////////////
+function doCalcPen() { 
+
+  // We clear the old results
+  document.getElementById("opt_dist_from_post")  .innerHTML = "-";
+  document.getElementById("opt_dist_from_centre").innerHTML = "-";
+  document.getElementById("prob_score")          .innerHTML = "-";  
+  document.getElementById("pen_warning")         .innerHTML = "";
+  
+  
+  var inputsAcceptable = true;
+  ///////////////////////////////////////////////////////////////////////
+  // Read inputs        
+  var probSavePost   = text2NumPen(document.getElementById("prob_save_post")   .value ) * 0.01;
+  
+  if (    (probSavePost < 0)
+       || (probSavePost > 1)       
+     ){
+       document.getElementById("pen_warning").innerHTML = "Probability of save at post must be a numeric value between 0 and 100%";    
+       inputsAcceptable = false;
+  }
+  console.log("Have probSavePost: " + probSavePost.toString());
+    
+  
+  var probSaveCentre = text2NumPen(document.getElementById("prob_save_centre") .value ) * 0.01;
+  if (    (probSaveCentre < 0)
+       || (probSaveCentre > 1)       
+     ){
+       document.getElementById("pen_warning").innerHTML = "Probability of save at centre must be a numeric value between 0 and 100%";    
+       inputsAcceptable = false;
+  }
+  console.log("Have probSaveCentre: " + probSaveCentre.toString());
+
+  
+  var inaccuracy     = text2NumPen(document.getElementById("inaccuracy")       .value );
+  if (    (inaccuracy <= 0)     ){
+       document.getElementById("pen_warning").innerHTML = "The striker's average inaccuracy must greater than 0";    
+       inputsAcceptable = false;
+  }
+  console.log("Have inaccuracy: " + inaccuracy.toString());
+  ///////////////////////////////////////////////////////////////////////  
+  if(inputsAcceptable){
+  
+     // Do calculation
+     var res = getPenResults(probSavePost, probSaveCentre, inaccuracy);
+  
+     var optDistFromPost   = res[0];
+     var optDistFromCentre = res[1];
+     var probScore         = res[2];
+  
+     // Write outputs
+     document.getElementById("opt_dist_from_post")  .innerHTML = num2StrPen(optDistFromPost);
+     document.getElementById("opt_dist_from_centre").innerHTML = num2StrPen(optDistFromCentre);
+     document.getElementById("prob_score")          .innerHTML = num2StrPen(probScore * 1e2);
+  }
+}
+/////////////////////////////////////////////////////////////////////////////
+// sigma squared is the variance of the striker
+// sigma has units of radians  
+function getSigma(inaccuracy){
+   
+  var sigma = Math.sqrt( Math.PI * 0.5 ) * Math.atan( inaccuracy / g_distPenToGoal);
+  
+  return sigma;
+}  
+/////////////////////////////////////////////////////////////////////////////
+function getPenResults(probSavePost, probSaveCentre, inaccuracy){
+    
+  var sigma             = getSigma(inaccuracy);
+  
+  // The following line does the bulk of the work:
+  var optTarget         = getOptimalTarget(probSavePost, probSaveCentre, sigma, g_numSteps);
+  
+  var optDistFromCentre =  g_distPenToGoal * Math.tan(optTarget);
+  var optDistFromPost   =  (g_goalWidth - g_ballDiameter) * 0.5 - optDistFromCentre;
+  var probScore         =  getProbOfScoring(probSavePost, probSaveCentre, sigma, optTarget, g_numSteps);
+       
+  var res = [];
+  res[0] = optDistFromPost;
+  res[1] = optDistFromCentre;
+  res[2] = probScore;
+  
+  return res;
+}  
+/////////////////////////////////////////////////////////////////////////////
+function num2StrPen(x) {
+  
+  return (Math.round(x* 100) / 100).toFixed(2);
+}
+/////////////////////////////////////////////////////////////////////////////
+function text2NumPen(str){
+  return Number(str.replace(/\,/g,''));
+} 
+  /////////////////////////////////////////////////////////////////////////////
+function getBallDistribFn( target, sigma){
+   var distFn = ( 
+                   function( theta){
+                        return Math.exp( -(theta - target)*(theta - target) / (2 * sigma * sigma)) 
+                              / ( sigma * Math.sqrt(2 * Math.PI) );
+                   }
+                );
+   return distFn;
+}
+/////////////////////////////////////////////////////////////////////////////
+function getScoreProbFn(probOfSaveAtPost, probOfSaveAtCentre, sigma, target){
+     var saveProb = getProbSaveFunction(probOfSaveAtPost, probOfSaveAtCentre);
+     var ballDist = getBallDistribFn(target, sigma);
+
+     var scoreProbFn = (function( x ){
+                                  if ( Math.abs(x) > g_angleAtPost)
+                                      return 0; // when the ball is wide, it is not a goal
+                                  else 
+                                      return ballDist(x) * ( 1 - saveProb(x));
+                               });
+     return scoreProbFn;
+}
+/////////////////////////////////////////////////////////////////////////////
+function getProbOfScoring(probOfSaveAtPost, probOfSaveAtCentre, sigma, target, steps){
+     var scoreProbFn = getScoreProbFn(probOfSaveAtPost, probOfSaveAtCentre, sigma, target);
+
+     var prob = integratePen(-g_angleAtPost, g_angleAtPost, steps, scoreProbFn );
+  
+     return Math.min(1, prob); // we cap the probabilities at 1
+}
+/////////////////////////////////////////////////////////////////////////////
+function getOptimalTarget(probOfSaveAtPost, probOfSaveAtCentre, sigma, steps){
+
+    var previousTarget   = g_angleAtPost;
+    var optimalTarget    = previousTarget;
+    var optimalScoreProb = 0;
+
+    var stepSize = g_angleAtPost / steps;
+
+    for(var i = 1; i<= steps; i++) {
+       var currentTarget    = previousTarget - stepSize;
+       var scoreProbFn      = getScoreProbFn(probOfSaveAtPost, probOfSaveAtCentre, sigma, currentTarget);
+       var currentScoreProb = integratePen(-g_angleAtPost, g_angleAtPost, steps, scoreProbFn);
+
+       if (currentScoreProb > optimalScoreProb){
+           optimalTarget    = currentTarget;
+           optimalScoreProb = currentScoreProb;
+       }
+       
+       previousTarget = currentTarget;
+    }
+    return optimalTarget;  
+
+}
+/////////////////////////////////////////////////////////////////////////////
+function getProbSaveFunction( probSaveAtPost, probSaveAtCentre){
+   var probSave = ( function (theta ) 
+                         { 
+                          return (  (probSaveAtPost - probSaveAtCentre)
+                                   * Math.abs(theta / g_angleAtPost)
+                                   + probSaveAtCentre  ) ;
+                         }
+                  );
+  return probSave;
+}
+
+///////////////////////////////////////////////////////////////
+// The following function does a numerical integral               
+function integratePen( startX, endX, numSteps, yFn){
+  
+    var xStep        = ( endX - startX) / numSteps ;
+    var runningSum   = 0;
+     
+    var previousX    = startX;
+    var previousY    = yFn( previousX );
+ 
+    for(var i = 1; i<= numSteps; i++) {
+       
+      var nextX   = startX + xStep *  i;
+      var nextY   = yFn(nextX);          
+      runningSum  = runningSum + 0.5 * xStep * ( nextY + previousY);
+      previousY   = nextY;
+    }
+  
+    return (runningSum);
+}
+
+     ////////////////////////////////////////////////////////////////
+</script>
+
+<script async="" id="MathJax-script" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" type="text/javascript">
+
+  MathJax = {
+    tex: {
+      inlineMath: [['$', '$'], ['\\(', '\\)']]
+    },
+    svg: {
+      fontCache: 'global'
+    }
+  };
+</script>
+</html>  
+
