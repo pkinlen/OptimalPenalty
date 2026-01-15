@@ -65,14 +65,19 @@ The striker's average inaccuracy is measured by asking the striker to kick the b
 
 /////////////////////////////////////////////////////////////////////////////
 // Constants
-const g_angleAtPost   = 0.3127677335;  // in radians: atan (   (dist_centre_to_less_post less ball_radius ) 
-                                       //                    / dist_pen_spot_to_goal_centre                )
+const g_angleAtPost          = 0.3127677335;  // in radians: atan (   (dist_centre_to_less_post less ball_radius ) 
+                                              //                    / dist_pen_spot_to_goal_centre                )
   
-const g_numSteps      = 1000;          // the number of interations used when integrating     
-const g_distPenToGoal = 10.97;         // meters
+const g_numSteps             = 1000;          // the number of interations used when integrating     
+const g_distPenToGoal        = 10.97;         // meters
 
-const g_goalWidth     = 7.32;          // meters
-const g_ballDiameter  = 0.223;         // meters
+const g_goalWidth            = 7.32;          // meters
+const g_ballDiameter         = 0.223;         // meters
+
+const g_optDistFromPostIdx   = 0;
+const g_optDistFromCentreIdx = 1;
+const g_probScoreIdx         = 2;  
+
       
 // Initialise result using default values 
 doCalcPen();
@@ -95,12 +100,11 @@ function doCalcPen() {
   if (    (probSavePost < 0)
        || (probSavePost > 1)       
      ){
-       document.getElementById("pen_warning").innerHTML = "Probability of save at post must be a numeric value between 0 and 100%";    
+       document.getElementById("pen_warning").innerHTML = "Prob of save at post must be a numeric value between 0 and 100%";    
        inputsAcceptable = false;
   }
   console.log("Have probSavePost: " + probSavePost.toString());
     
-  
   var probSaveCentre = text2NumPen(document.getElementById("prob_save_centre") .value ) * 0.01;
   if (    (probSaveCentre < 0)
        || (probSaveCentre > 1)       
@@ -121,11 +125,11 @@ function doCalcPen() {
   if(inputsAcceptable){
   
      // Do calculation
-     var res = getPenResults(probSavePost, probSaveCentre, inaccuracy);
+     var res               = getPenResults(probSavePost, probSaveCentre, inaccuracy);
   
-     var optDistFromPost   = res[0];
-     var optDistFromCentre = res[1];
-     var probScore         = res[2];
+     var optDistFromPost   = res[g_optDistFromPostIdx];
+     var optDistFromCentre = res[g_optDistFromCentreIdx];
+     var probScore         = res[g_probScoreIdx];
   
      // Write outputs
      document.getElementById("opt_dist_from_post")  .innerHTML = num2StrPen(optDistFromPost);
@@ -145,26 +149,26 @@ function getSigma(inaccuracy){
 /////////////////////////////////////////////////////////////////////////////
 function getPenResults(probSavePost, probSaveCentre, inaccuracy){
     
-  var sigma             = getSigma(inaccuracy);
+  var sigma                   = getSigma(inaccuracy);
   
   // The following line does the bulk of the work:
-  var optTarget         = getOptimalTarget(probSavePost, probSaveCentre, sigma, g_numSteps);
+  var optTarget               = getOptimalTarget(probSavePost, probSaveCentre, sigma, g_numSteps);
   
-  var optDistFromCentre =  g_distPenToGoal * Math.tan(optTarget);
-  var optDistFromPost   =  (g_goalWidth - g_ballDiameter) * 0.5 - optDistFromCentre;
-  var probScore         =  getProbOfScoring(probSavePost, probSaveCentre, sigma, optTarget, g_numSteps);
+  var optDistFromCentre       =  g_distPenToGoal * Math.tan(optTarget);
+  var optDistFromPost         = (g_goalWidth - g_ballDiameter) * 0.5 - optDistFromCentre;
+  var probScore               =  getProbOfScoring(probSavePost, probSaveCentre, sigma, optTarget, g_numSteps);
        
   var res = [];
-  res[0] = optDistFromPost;
-  res[1] = optDistFromCentre;
-  res[2] = probScore;
+  res[g_optDistFromPostIdx]   = optDistFromPost;
+  res[g_optDistFromCentreIdx] = optDistFromCentre;
+  res[g_probScoreIdx]         = probScore;
   
   return res;
 }  
 /////////////////////////////////////////////////////////////////////////////
 function num2StrPen(x) {
   
-  return (Math.round(x* 100) / 100).toFixed(2);
+  return (Math.round( x * 100) / 100).toFixed(2);
 }
 /////////////////////////////////////////////////////////////////////////////
 function text2NumPen(str){
@@ -197,16 +201,19 @@ function getScoreProbFn(probOfSaveAtPost, probOfSaveAtCentre, sigma, target){
 function getProbOfScoring(probOfSaveAtPost, probOfSaveAtCentre, sigma, target, steps){
      var scoreProbFn = getScoreProbFn(probOfSaveAtPost, probOfSaveAtCentre, sigma, target);
 
-     var prob = integratePen(-g_angleAtPost, g_angleAtPost, steps, scoreProbFn );
+     var lowVal      = Math.max( -g_angleAtPost, target - 4.0 * sigma);
+     var highVal     = Math.min( g_angleAtPost,  target + 4.0 * sigma);
   
-     return Math.min(1, prob); // we cap the probabilities at 1
+     var prob        = integratePen(lowVal, highVal, steps, scoreProbFn );
+  
+     return Math.min( 1.0, prob); // we cap the probabilities at 1
 }
 /////////////////////////////////////////////////////////////////////////////
 function getOptimalTarget(probOfSaveAtPost, probOfSaveAtCentre, sigma, steps){
 
-    var previousTarget   = g_angleAtPost;
-    var optimalTarget    = previousTarget;
-    var optimalScoreProb = 0;
+    var previousTarget      = g_angleAtPost;
+    var optimalTarget       = previousTarget;
+    var optimalScoreProb    = 0;
 
     var stepSize = g_angleAtPost / steps;
 
@@ -220,7 +227,7 @@ function getOptimalTarget(probOfSaveAtPost, probOfSaveAtCentre, sigma, steps){
            optimalScoreProb = currentScoreProb;
        }
        
-       previousTarget = currentTarget;
+       previousTarget       = currentTarget;
     }
     return optimalTarget;  
 
@@ -249,10 +256,10 @@ function integratePen( startX, endX, numSteps, yFn){
  
     for(var i = 1; i<= numSteps; i++) {
        
-      var nextX   = startX + xStep *  i;
-      var nextY   = yFn(nextX);          
-      runningSum  = runningSum + 0.5 * xStep * ( nextY + previousY);
-      previousY   = nextY;
+      var nextX      = startX + xStep *  i;
+      var nextY      = yFn(nextX);          
+      runningSum     = runningSum + 0.5 * xStep * ( nextY + previousY);
+      previousY      = nextY;
     }
   
     return (runningSum);
