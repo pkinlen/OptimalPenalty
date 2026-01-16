@@ -46,7 +46,10 @@ To see this in action, have a look at
         <tr> <td>   <b>Calculated Results</b></td><td></td>
         </tr><tr><td> Optimal target distance from post        </td><td align="right" id="opt_dist_from_post">   - </td> <td>meters</td>
         </tr><tr><td> Optimal target distance from goal centre </td><td align="right" id="opt_dist_from_centre"> - </td> <td>meters</td>
-        </tr><tr><td> Probability of scoring    </td><td align="right" id="prob_score">           - </td> <td>%</td>
+        </tr><tr><td> Probability of scoring  </td> <td align="right" id="prob_score">           - </td> <td>%</td>
+        </tr><tr><td> Probability of a save   </td> <td align="right" id="prob_save">            - </td> <td>%</td>
+        </tr><tr><td> Probability of a wide   </td> <td align="right" id="prob_wide">            - </td> <td>%</td>
+          
     </tr></tbody></table>      
 
 <br/><br/>
@@ -77,6 +80,8 @@ const g_ballDiameter         = 0.223;         // meters
 const g_optDistFromPostIdx   = 0;
 const g_optDistFromCentreIdx = 1;
 const g_probScoreIdx         = 2;  
+const g_probSaveIdx          = 3;  
+const g_probWideIdx          = 4;  
 
       
 // Initialise result using default values 
@@ -89,26 +94,23 @@ function doCalcPen() {
   document.getElementById("opt_dist_from_post")  .innerHTML = "-";
   document.getElementById("opt_dist_from_centre").innerHTML = "-";
   document.getElementById("prob_score")          .innerHTML = "-";  
+  document.getElementById("prob_save")           .innerHTML = "-";  
+  document.getElementById("prob_wide")           .innerHTML = "-";  
   document.getElementById("pen_warning")         .innerHTML = "";
-  
   
   var inputsAcceptable = true;
   ///////////////////////////////////////////////////////////////////////
   // Read inputs        
   var probSavePost   = text2NumPen(document.getElementById("prob_save_post")   .value ) * 0.01;
   
-  if (    (probSavePost < 0)
-       || (probSavePost > 1)       
-     ){
+  if (    (probSavePost < 0) || (probSavePost > 1))   {
        document.getElementById("pen_warning").innerHTML = "Prob of save at post must be a numeric value between 0 and 100%";    
        inputsAcceptable = false;
   }
   console.log("Have probSavePost: " + probSavePost.toString());
     
   var probSaveCentre = text2NumPen(document.getElementById("prob_save_centre") .value ) * 0.01;
-  if (    (probSaveCentre < 0)
-       || (probSaveCentre > 1)       
-     ){
+  if (    (probSaveCentre < 0)  || (probSaveCentre > 1) ){
        document.getElementById("pen_warning").innerHTML = "Probability of save at centre must be a numeric value between 0 and 100%";    
        inputsAcceptable = false;
   }
@@ -132,20 +134,13 @@ function doCalcPen() {
      var probScore         = res[g_probScoreIdx];
   
      // Write outputs
-     document.getElementById("opt_dist_from_post")  .innerHTML = num2StrPen(optDistFromPost);
-     document.getElementById("opt_dist_from_centre").innerHTML = num2StrPen(optDistFromCentre);
-     document.getElementById("prob_score")          .innerHTML = num2StrPen(probScore * 1e2);
+     document.getElementById("opt_dist_from_post")  .innerHTML = num2StrPen(res[g_optDistFromPostIdx]        );
+     document.getElementById("opt_dist_from_centre").innerHTML = num2StrPen(res[g_optDistFromCentreIdx]      );
+     document.getElementById("prob_score")          .innerHTML = num2StrPen(res[g_probScoreIdx]         * 1e2);
+     document.getElementById("prob_save")           .innerHTML = num2StrPen(res[g_probSaveIdx]          * 1e2);
+     document.getElementById("prob_wide")           .innerHTML = num2StrPen(res[g_probWideIdx]          * 1e2);
   }
 }
-/////////////////////////////////////////////////////////////////////////////
-// sigma squared is the variance of the striker
-// sigma has units of radians  
-function getSigma(inaccuracy){
-   
-  var sigma = Math.sqrt( Math.PI * 0.5 ) * Math.atan( inaccuracy / g_distPenToGoal);
-  
-  return sigma;
-}  
 /////////////////////////////////////////////////////////////////////////////
 function getPenResults(probSavePost, probSaveCentre, inaccuracy){
     
@@ -157,24 +152,37 @@ function getPenResults(probSavePost, probSaveCentre, inaccuracy){
   var optDistFromCentre       =  g_distPenToGoal * Math.tan(optTarget);
   var optDistFromPost         = (g_goalWidth - g_ballDiameter) * 0.5 - optDistFromCentre;
   var probScore               =  getProbOfScoring(probSavePost, probSaveCentre, sigma, optTarget, g_numSteps);
-       
+  
+  //(prob of scoring without a goalie) = probSave + probScore
+  var probSave = getProbOfScoring(0, 0, sigma, optTarget, g_numSteps) - probScore;
+  
+  if( (probScore + probSave) > 1){
+      console.log("prob score is: " + probScore.toString()); 
+      console.log("prob save  is: " + probSave .toString()); 
+      probSave = 1 - probScore;
+  }
+  
+  var probWide = 1.0 - ( probScore + probSave);
+  
   var res = [];
   res[g_optDistFromPostIdx]   = optDistFromPost;
   res[g_optDistFromCentreIdx] = optDistFromCentre;
   res[g_probScoreIdx]         = probScore;
-  
+  res[g_probSaveIdx]          = probSave;
+  res[g_probWideIdx ]         = probWide;
+    
   return res;
 }  
 /////////////////////////////////////////////////////////////////////////////
-function num2StrPen(x) {
+// sigma squared is the variance of the striker
+// sigma has units of radians  
+function getSigma(inaccuracy){
+   
+  var sigma = Math.sqrt( Math.PI * 0.5 ) * Math.atan( inaccuracy / g_distPenToGoal);
   
-  return (Math.round( x * 100) / 100).toFixed(2);
-}
+  return sigma;
+}  
 /////////////////////////////////////////////////////////////////////////////
-function text2NumPen(str){
-  return Number(str.replace(/\,/g,''));
-} 
-  /////////////////////////////////////////////////////////////////////////////
 function getBallDistribFn( target, sigma){
    var distFn = ( 
                    function( theta){
@@ -202,7 +210,7 @@ function getProbOfScoring(probOfSaveAtPost, probOfSaveAtCentre, sigma, target, s
      var scoreProbFn = getScoreProbFn(probOfSaveAtPost, probOfSaveAtCentre, sigma, target);
 
      var lowVal      = Math.max( -g_angleAtPost, target - 4.0 * sigma);
-     var highVal     = Math.min( g_angleAtPost,  target + 4.0 * sigma);
+     var highVal     = Math.min(  g_angleAtPost, target + 4.0 * sigma);
   
      var prob        = integratePen(lowVal, highVal, steps, scoreProbFn );
   
@@ -264,8 +272,16 @@ function integratePen( startX, endX, numSteps, yFn){
   
     return (runningSum);
 }
-
-     ////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////
+function num2StrPen(x) {
+  
+  return (Math.round( x * 100) / 100).toFixed(2);
+}
+/////////////////////////////////////////////////////////////////////////////
+function text2NumPen(str){
+  return Number(str.replace(/\,/g,''));
+} 
+////////////////////////////////////////////////////////////////
 </script>
 
 </html>  
